@@ -23,12 +23,12 @@ en_pin = machine.Pin(3, machine.Pin.OUT)
 step_pin = machine.Pin(18, machine.Pin.OUT)
 dir_pin = machine.Pin(19, machine.Pin.OUT)
 endstop_pin = machine.Pin(27, machine.Pin.IN, machine.Pin.PULL_UP)
-"""
+
 hx = HX711(d_out=dt_pin, pd_sck=sck_pin)
 time.sleep(1)
 hx.tare()
 hx.set_scale(420)
-"""
+
 def get_distance(trig, echo):
     trig.low()
     time.sleep_us(2)
@@ -63,14 +63,11 @@ def detect_object(timeout=30):
         time.sleep_ms(100)
 
 def get_weight():
-    return random.randint(100, 300)
-"""
-def get_weight():
     weight = hx.get_units(15)
     if -3.0 < weight < 3.0:
         weight = 101.0
     return round(weight, 1)
-"""
+
 def open_gate():
     for i in range(91):
         set_angle(servo0, 90 - i)
