@@ -64,8 +64,6 @@ def detect_object(timeout=30):
 
 def get_weight():
     weight = hx.get_units(15)
-    if -3.0 < weight < 3.0:
-        weight = 101.0
     return round(weight, 1)
 
 def open_gate():
