@@ -139,50 +139,83 @@ class QRKioskApp:
             self.status_label.config(text=f"{MSG_INPUT_WAIT} ({self.input_timeout}초)")
             self.root.after(1000, self.check_input_loop)
 
+    import time
+
     def process_waste(self):
         self.main_label.config(text="처리 중입니다...", image="")
         self.status_label.config(text="잠시만 기다려주세요.")
         self.root.update_idletasks()
-
+        
         # [하드웨어 작동 시뮬레이션]
         reason = None
-        weight=-1
-        times=10
-        while(weight<0 or times<0):
+        action_result = None  # 최종 수행할 동작 (reject, can, trans_pet, opa_pet)
+        
+        # 1단계: 사진 촬영 및 AI 분류 우선 진행 (품목을 알아야 무게 기준을 정함)
+        image = capture_image()
+        ai_result = classify(image)
+        print("AI 분류 결과:", ai_result)
+        
+        # 2단계: 안정적인 무게 측정 (기존의 while 루프 버그 수정)
+        weight = -1
+        times = 10
+        while weight < 0 and times > 0:
             weight = weight_handler.request_weight()
-            times-=1
-        if(weight<0):
-            weight=1
-        if weight>50:
-            result="reject"
-            reason="notempty"
-        else:
-            # 사진 촬영
-            image = capture_image()
-            # AI 분류 result["first_class"], result["second_class"]
-            result = classify(image)
-            print(result)
-            if  result["second_class"] != "normal":
-                if result["first_class"] == "exception":
-                    reason="etc"
-                elif result["second_class"]=="label":
-                    reason="label"
-                else :
-                    reason="pollution"
-                result="reject"
+            times -= 1
+            time.sleep(0.1)
+            
+        if weight < 0:
+            weight = 1  # 센서 에러 시 기본값 대체
+        
+        # 3단계: 품목별 맞춤형 무게 검증 및 상태 분류
+        # (1) AI 분류 결과 이물질이나 라벨 미제거인 경우 선제적 거절
+        if ai_result["second_class"] != "normal":
+            action_result = "reject"
+            if ai_result["first_class"] == "exception":
+                reason = "etc"
+            elif ai_result["second_class"] == "label":
+                reason = "label"
             else:
-                if result["first_class"] == "color_p":
-                    result = "opa_pet"
-                elif result["first_class"] == "clear_p":
-                    result = "trans_pet"
+                reason = "pollution"
+                
+        # (2) 정상적인 품목인 경우 -> 캔과 플라스틱을 나누어 무게 검증
+        else:
+            # 플라스틱 페트병 분류 (투명/유색)
+            if ai_result["first_class"] in ["clear_p", "color_p"]:
+                # 플라스틱은 가벼우므로 내용물이 조금만 들어있어도(예: 30g 초과) 거절
+                if weight > 30: 
+                    action_result = "reject"
+                    reason = "notempty"  # 플라스틱 내용물 미비움
                 else:
-                    result = "can"
-        hardware_handler.rotate(result)
-        time.sleep(3)
-        hardware_handler.open_gate()
-        level_pct = hardware_handler.request_levels()
+                    action_result = "trans_pet" if ai_result["first_class"] == "clear_p" else "opa_pet"
+                    
+            # 캔 분류
+            elif ai_result["first_class"] == "can":
+                # 캔은 자체 무게가 있으므로 플라스틱보다 여유 있는 기준(예: 60g 초과) 적용
+                if weight > 60:
+                    action_result = "reject"
+                    reason = "notempty"  # 캔 내용물 미비움
+                else:
+                    action_result = "can"
+                    
+            # 그 외 예외 상황
+            else:
+                action_result = "reject"
+                reason = "etc"
+    
+        # 4단계: 최종 판정에 따른 하드웨어 제어
+        if action_result == "reject":
+            print(f"[반려] 사유: {reason}, 측정 무게: {weight}g")
+            # 거절 시 UI 안내 및 투입구 개방 등의 하드웨어 제어를 여기에 추가하세요.
+        else:
+            print(f"[통과] 결과: {action_result}, 측정 무게: {weight}g")
+            hardware_handler.rotate(action_result)
+            time.sleep(3)
+            hardware_handler.open_gate()
+            level_pct = hardware_handler.request_levels()
+            
         hardware_handler.home()
-        # [하드웨어 작동 시뮬레이션]
+        # [하드웨어 작동 시뮬레이션 끝]
+
         
         user_id = api_handler.update_waste_log_and_get_user(policy=self.policies.get(result), type=result, weight=weight, reason=reason, city=self.city)
         final_status = api_handler.update_device_capacity(self.thresholds, result=result, level_pct=level_pct, user_id=user_id)
