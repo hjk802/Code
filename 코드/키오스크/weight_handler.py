@@ -63,7 +63,6 @@ def request_weight():
 
     return round(weight, 1)
 
-# 기존 맨 아래의 while(): 부분을 아래와 같이 수정하세요.
 """"""
 if __name__ == "__main__":
     try:
